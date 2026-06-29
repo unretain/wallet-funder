@@ -1,0 +1,13 @@
+# ── SECRETS — never commit these ──
+.env
+.env.local
+wallets.json
+*-wallets.txt
+all-wallets.txt
+funded-wallets.txt
+*.key
+
+# ── deps / build ──
+node_modules/
+dist/
+*.log

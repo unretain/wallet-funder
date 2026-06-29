@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>Wallet Funder</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#07070f;--surface:#0f0f1c;--border:#1a1a2e;
+  --purple:#7c6bff;--green:#3ecf8e;--red:#ff5c5c;--yellow:#f0c040;
+  --text:#d0d0e0;--muted:#40405a;--label:#7070a0;
+}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;padding:24px 20px;min-height:100vh}
+h1{font-size:17px;font-weight:700;color:#fff;letter-spacing:.07em}
+.sub{font-size:11px;color:var(--muted);margin-top:2px;margin-bottom:24px}
+
+/* setup overlay */
+#setup{display:none;background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:24px;margin-bottom:24px}
+#setup h2{font-size:14px;margin-bottom:8px}
+#setup p{font-size:12px;color:var(--label);margin-bottom:16px;line-height:1.6}
+.setup-addr{font-family:monospace;font-size:12px;background:#0a0a18;border:1px solid var(--border);border-radius:8px;padding:10px 14px;word-break:break-all;color:var(--green);margin-top:12px}
+
+/* top row */
+.top-row{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.top-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px 18px;flex:1;min-width:180px}
+.top-card .lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-bottom:4px}
+.top-card .val{font-size:20px;font-weight:700;color:var(--purple)}
+.top-card .val span{font-size:12px;font-weight:400;color:var(--muted);margin-left:3px}
+.top-card .small{font-size:11px;color:var(--label);margin-top:3px}
+.top-card .addr{font-family:monospace;font-size:11px;color:var(--label);margin-top:5px;cursor:pointer;word-break:break-all}
+.top-card .addr:hover{color:var(--purple)}
+
+/* steps */
+.steps{display:flex;flex-direction:column;gap:10px}
+.step{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden}
+.step-head{display:flex;align-items:center;gap:12px;padding:14px 18px;cursor:pointer;user-select:none}
+.step-head:hover{background:#12121f}
+.num{width:26px;height:26px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:var(--muted);flex-shrink:0;transition:.2s}
+.num.done{border-color:var(--green);color:var(--green);background:#0b1e12}
+.num.active{border-color:var(--purple);color:var(--purple);animation:pulse 1.2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(124,107,255,.35)}50%{box-shadow:0 0 0 5px rgba(124,107,255,0)}}
+.step-title{font-size:13px;font-weight:600;color:#bbb;flex:1}
+.step-badge{font-size:10px;font-weight:700;padding:2px 9px;border-radius:20px;background:var(--border);color:var(--muted)}
+.step-badge.green{background:#0b1e12;color:var(--green)}
+.step-badge.purple{background:#131030;color:var(--purple)}
+.step-badge.red{background:#1e0b0b;color:var(--red)}
+.step-body{padding:0 18px 16px;display:none}
+.step.open .step-body{display:block}
+.step-desc{font-size:11px;color:var(--label);margin-bottom:14px;line-height:1.6}
+
+/* inputs */
+.row2{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap}
+.field{flex:1;min-width:120px}
+.field label{display:block;font-size:10px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.08em}
+input[type=number]{width:100%;background:#0a0a18;border:1px solid var(--border);border-radius:8px;color:#fff;font-size:15px;font-weight:700;padding:9px 12px;outline:none}
+input[type=number]:focus{border-color:var(--purple)}
+
+/* buttons */
+.btn{display:inline-flex;align-items:center;gap:7px;border:none;border-radius:9px;color:#fff;cursor:pointer;font-size:12px;font-weight:700;padding:10px 20px;letter-spacing:.04em;transition:.15s}
+.btn:disabled{opacity:.3;cursor:not-allowed}
+.btn-purple{background:var(--purple)}.btn-purple:hover:not(:disabled){background:#9585ff}
+.btn-green{background:#1a6e4a}.btn-green:hover:not(:disabled){background:#23a866}
+.btn-sm{padding:7px 14px;font-size:11px}
+
+/* cost table */
+table{width:100%;border-collapse:collapse;margin-bottom:12px}
+td{padding:6px 0;font-size:11px;border-bottom:1px solid #13132a}
+td:last-child{text-align:right;font-family:monospace;color:var(--purple)}
+tr:last-child td{border-bottom:none;font-weight:700;font-size:12px;color:#fff;padding-top:10px}
+.tlbl{color:var(--label)}
+
+/* chain visual */
+.chain-vis{display:flex;align-items:center;gap:4px;margin:14px 0;flex-wrap:wrap;row-gap:10px}
+.c-node{display:flex;flex-direction:column;align-items:center;gap:4px;min-width:56px}
+.c-dot{width:32px;height:32px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--muted);transition:.3s}
+.c-dot.active{border-color:var(--purple);color:var(--purple);animation:pulse 1.2s infinite}
+.c-dot.done{border-color:var(--green);color:var(--green);background:#0b1e12}
+.c-dot.special{border-color:var(--yellow);color:var(--yellow)}
+.c-dot.special.done{border-color:var(--green);color:var(--green);background:#0b1e12}
+.c-lbl{font-size:9px;color:var(--muted);text-align:center;line-height:1.3}
+.c-lbl b{color:var(--label)}
+.c-arr{color:var(--border);font-size:14px;padding-bottom:18px;transition:.3s}
+.c-arr.lit{color:var(--purple)}
+
+/* wallet grid */
+.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:5px;max-height:220px;overflow-y:auto;margin-top:10px}
+.w-item{background:#0a0a18;border:1px solid var(--border);border-radius:7px;padding:7px 10px;font-family:monospace;font-size:11px;color:var(--label);display:flex;align-items:center;gap:7px;animation:fadeIn .15s}
+.w-item .wi{color:var(--muted);font-size:10px;width:26px;flex-shrink:0}
+@keyframes fadeIn{from{opacity:0;transform:translateY(-3px)}to{opacity:1}}
+
+/* progress */
+.prog-row{display:flex;align-items:center;gap:10px;margin:10px 0;font-size:11px;color:var(--muted)}
+.prog-row strong{color:var(--purple)}
+.pbar{flex:1;height:7px;background:var(--border);border-radius:4px;overflow:hidden}
+.pfill{height:100%;background:linear-gradient(90deg,var(--purple),var(--green));width:0;transition:width .3s;border-radius:4px}
+
+/* dist log */
+.dlog{background:#0a0a18;border:1px solid var(--border);border-radius:9px;max-height:200px;overflow-y:auto;margin-top:10px}
+.drow{display:flex;gap:9px;align-items:center;padding:7px 12px;border-bottom:1px solid #13132a;font-size:11px;animation:fadeIn .15s}
+.drow:last-child{border-bottom:none}
+.di{color:var(--muted);width:32px;flex-shrink:0}
+.dp{font-family:monospace;color:var(--label);flex:1}
+.da{color:var(--purple);font-weight:700;flex-shrink:0}
+.ds{font-family:monospace;font-size:10px;color:var(--green);flex-shrink:0;text-decoration:none}
+.ds:hover{text-decoration:underline}
+
+.chain-deposit-box{background:#0a0a18;border:1px solid var(--yellow);border-radius:9px;padding:12px 16px;margin:10px 0}
+.chain-deposit-box .lbl2{font-size:10px;color:var(--yellow);text-transform:uppercase;letter-spacing:.08em;margin-bottom:5px}
+.chain-deposit-box .addr2{font-family:monospace;font-size:12px;color:#fff;cursor:pointer;word-break:break-all}
+.chain-deposit-box .addr2:hover{color:var(--yellow)}
+.chain-deposit-box .hint{font-size:10px;color:var(--muted);margin-top:4px}
+</style>
+</head>
+<body>
+
+<h1>WALLET FUNDER</h1>
+<p class="sub">chain → generate → distribute · no main key needed</p>
+
+<!-- SETUP PANEL (shown until bundle key exists) -->
+<div id="setup">
+  <h2>First time setup</h2>
+  <p>No bundle holder wallet detected. Click below to generate one automatically — the private key is saved to your local <code>.env</code> file only.</p>
+  <button class="btn btn-purple" onclick="setupBundle()">Generate Bundle Holder Wallet</button>
+  <div class="setup-addr" id="setup-addr" style="display:none"></div>
+</div>
+
+<!-- TOP ROW -->
+<div class="top-row" id="main-ui" style="display:none">
+  <div class="top-card">
+    <div class="lbl">Bundle Holder (deposit target)</div>
+    <div class="addr" id="deposit-addr" onclick="copyText(this)" title="click to copy">—</div>
+    <div class="small" style="margin-top:4px;color:var(--muted);font-size:10px">click to copy</div>
+  </div>
+  <div class="top-card">
+    <div class="lbl">Balance</div>
+    <div class="val"><span id="bal-sol">—</span><span>SOL</span></div>
+    <div class="small" id="bal-usd">—</div>
+  </div>
+  <div class="top-card">
+    <div class="lbl">SOL Price</div>
+    <div class="val">$<span id="sol-price">—</span></div>
+    <div class="small" id="wallets-count">—</div>
+  </div>
+</div>
+
+<!-- STEPS -->
+<div class="steps" id="steps-ui" style="display:none">
+
+  <!-- STEP 1: COST -->
+  <div class="step open" id="step1">
+    <div class="step-head" onclick="toggleStep('step1')">
+      <div class="num done" id="n1">1</div>
+      <div class="step-title">Cost Calculator</div>
+      <div class="step-badge green" id="b1">live</div>
+    </div>
+    <div class="step-body">
+      <div class="row2">
+        <div class="field">
+          <label>SOL per wallet</label>
+          <input type="number" id="per-wallet" value="0.1" min="0.01" step="0.01" oninput="refreshCost()"/>
+        </div>
+        <div class="field">
+          <label>Wallet count</label>
+          <input type="number" id="wcount" value="100" min="1" max="500" oninput="refreshCost()"/>
+        </div>
+      </div>
+      <table id="cost-table"><tr><td colspan="2" class="tlbl">loading…</td></tr></table>
+    </div>
+  </div>
+
+  <!-- STEP 2: GENERATE WALLETS -->
+  <div class="step" id="step2">
+    <div class="step-head" onclick="toggleStep('step2')">
+      <div class="num" id="n2">2</div>
+      <div class="step-title">Generate Buyer Wallets</div>
+      <div class="step-badge" id="b2">—</div>
+    </div>
+    <div class="step-body">
+      <p class="step-desc">Creates fresh keypairs saved to <code>wallets.json</code> on the server. Private keys never leave your machine — only pubkeys shown here.</p>
+      <button class="btn btn-purple btn-sm" id="gen-btn" onclick="generateWallets()">Generate Wallets</button>
+      <div class="wgrid" id="wgrid"></div>
+    </div>
+  </div>
+
+  <!-- STEP 3: CHAIN -->
+  <div class="step" id="step3">
+    <div class="step-head" onclick="toggleStep('step3')">
+      <div class="num" id="n3">3</div>
+      <div class="step-title">Obfuscation Chain</div>
+      <div class="step-badge" id="b3">—</div>
+    </div>
+    <div class="step-body">
+      <p class="step-desc">
+        Generates 5 throwaway addresses. You send SOL to <b>addr1</b> from Phantom — no private key needed here.<br>
+        The server auto-detects the deposit and chains it: <b>addr1→2→3→4→[WSOL wrap]→addr5→unwrap→bundle holder</b>.
+        Breaks the SOL trail on bubblemaps.
+      </p>
+      <button class="btn btn-purple btn-sm" id="chain-gen-btn" onclick="generateChain()">Generate Chain Addresses</button>
+
+      <!-- Chain visual -->
+      <div class="chain-vis" id="chain-vis" style="display:none">
+        <!-- built by JS -->
+      </div>
+
+      <!-- Deposit box -->
+      <div class="chain-deposit-box" id="chain-deposit-box" style="display:none">
+        <div class="lbl2">⚡ Send your SOL here (from Phantom / CEX)</div>
+        <div class="addr2" id="chain-addr1" onclick="copyText(this)"></div>
+        <div class="hint">Auto-detects deposit · chain runs automatically once funded</div>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <button class="btn btn-green btn-sm" id="chain-run-btn" onclick="runChain()" style="display:none">Run Chain Now</button>
+        <div id="chain-status" style="font-size:11px;color:var(--muted)"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 4: DISTRIBUTE -->
+  <div class="step" id="step4">
+    <div class="step-head" onclick="toggleStep('step4')">
+      <div class="num" id="n4">4</div>
+      <div class="step-title">Distribute to Wallets</div>
+      <div class="step-badge" id="b4">—</div>
+    </div>
+    <div class="step-body">
+      <p class="step-desc">Splits the bundle holder's SOL across all generated wallets with ±10% variation per wallet so amounts look organic.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+        <button class="btn btn-green btn-sm" id="dist-btn" onclick="distribute()" disabled>Distribute SOL</button>
+        <button class="btn btn-sm" id="export-btn-all" style="background:#22224a" onclick="exportKeys('all')">Export All Keys</button>
+        <button class="btn btn-sm" id="export-btn-funded" style="background:#22224a" onclick="exportKeys('funded')">Export Funded Keys</button>
+      </div>
+      <div class="prog-row" style="margin-top:14px">
+        <strong id="dist-sent">0</strong>&nbsp;/&nbsp;<span id="dist-total">—</span>&nbsp;wallets
+        &nbsp;·&nbsp;~<strong id="dist-per">—</strong>&nbsp;SOL each
+        <div class="pbar"><div class="pfill" id="pfill"></div></div>
+      </div>
+      <div class="dlog" id="dlog"></div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let solP = 0, depositNeeded = 0, distT = 0, distS = 0;
+
+// ── UTILS ─────────────────────────────────────────────────────────────────
+function copyText(el) {
+  navigator.clipboard.writeText(el.textContent.trim());
+  const orig = el.style.color;
+  el.style.color = 'var(--green)';
+  setTimeout(() => el.style.color = orig, 800);
+}
+function toggleStep(id) {
+  document.getElementById(id).classList.toggle('open');
+}
+function setBadge(id, text, cls) {
+  const el = document.getElementById(id);
+  el.textContent = text;
+  el.className = `step-badge ${cls || ''}`;
+}
+function setNum(id, cls) {
+  document.getElementById(id).className = `num ${cls}`;
+}
+
+// ── SETUP ────────────────────────────────────────────────────────────────
+async function setupBundle() {
+  const r = await fetch('/api/setup/generate', { method: 'POST' });
+  const d = await r.json();
+  if (d.error) { alert(d.error); return; }
+  document.getElementById('setup-addr').style.display = 'block';
+  document.getElementById('setup-addr').textContent = '✓ Bundle holder: ' + d.pubkey;
+  setTimeout(() => {
+    document.getElementById('setup').style.display = 'none';
+    document.getElementById('main-ui').style.display = 'flex';
+    document.getElementById('steps-ui').style.display = 'flex';
+    loadStatus();
+    refreshCost();
+  }, 1000);
+}
+
+// ── STATUS ───────────────────────────────────────────────────────────────
+async function loadStatus() {
+  const r = await fetch('/api/status');
+  const d = await r.json();
+
+  if (!d.configured) {
+    document.getElementById('setup').style.display = 'block';
+    document.getElementById('main-ui').style.display = 'none';
+    document.getElementById('steps-ui').style.display = 'none';
+    return;
+  }
+
+  document.getElementById('setup').style.display = 'none';
+  document.getElementById('main-ui').style.display = 'flex';
+  document.getElementById('steps-ui').style.display = 'flex';
+
+  document.getElementById('deposit-addr').textContent = d.depositAddress;
+  document.getElementById('bal-sol').textContent = d.balanceSol.toFixed(4);
+  document.getElementById('bal-usd').textContent = d.solPrice ? '$' + (d.balanceSol * d.solPrice).toFixed(2) + ' USD' : '';
+  document.getElementById('sol-price').textContent = d.solPrice ? d.solPrice.toFixed(2) : '—';
+  document.getElementById('wallets-count').textContent = d.generatedCount + ' / ' + d.walletCount + ' wallets generated';
+  solP = d.solPrice || 0;
+
+  if (d.walletsReady) {
+    setNum('n2', 'done'); setBadge('b2', d.generatedCount + ' ready ✓', 'green');
+  }
+
+  // Update chain addr1 balance if chain is set up
+  if (d.chainAddr1 && d.chain1Bal !== undefined) {
+    document.getElementById('chain-status').textContent =
+      `addr1 balance: ${d.chain1Bal.toFixed(4)} SOL`;
+  }
+
+  updateDistBtn(d);
+}
+
+// ── COST ────────────────────────────────────────────────────────────────
+async function refreshCost() {
+  const per   = parseFloat(document.getElementById('per-wallet').value) || 0.1;
+  const count = parseInt(document.getElementById('wcount').value) || 100;
+  try {
+    const r = await fetch(`/api/cost?per=${per}&count=${count}`);
+    const d = await r.json();
+    if (d.error) return;
+    solP = d.totalUsd / d.totalSol || solP;
+    depositNeeded = d.totalSol;
+
+    const rows = Object.values(d.breakdown).map(i => `
+      <tr>
+        <td class="tlbl">${i.label}</td>
+        <td>${i.sol.toFixed(4)} SOL <span style="color:var(--muted);font-size:10px">($${(i.sol*(d.totalUsd/d.totalSol)).toFixed(2)})</span></td>
+      </tr>`).join('');
+
+    document.getElementById('cost-table').innerHTML = rows + `
+      <tr>
+        <td style="color:#fff">TOTAL TO DEPOSIT</td>
+        <td style="color:#fff">${d.totalSol.toFixed(4)} SOL <span style="color:var(--green)">($${d.totalUsd.toFixed(2)})</span></td>
+      </tr>`;
+  } catch {}
+}
+
+// ── GENERATE WALLETS ─────────────────────────────────────────────────────
+async function generateWallets() {
+  const btn = document.getElementById('gen-btn');
+  btn.disabled = true; btn.textContent = 'Generating…';
+  document.getElementById('wgrid').innerHTML = '';
+  try {
+    const r = await fetch('/api/wallets/generate', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    d.pubkeys.forEach((pk, i) => {
+      const el = document.createElement('div');
+      el.className = 'w-item';
+      el.innerHTML = `<span class="wi">${i+1}</span>${pk.slice(0,12)}…${pk.slice(-6)}`;
+      document.getElementById('wgrid').appendChild(el);
+    });
+    setNum('n2', 'done'); setBadge('b2', d.generated + ' wallets ✓', 'green');
+    btn.textContent = '↺ Regenerate';
+  } catch(e) {
+    setBadge('b2', e.message, 'red');
+    btn.textContent = 'Generate Wallets';
+  }
+  btn.disabled = false;
+  loadStatus();
+}
+
+async function loadExistingWallets() {
+  const r = await fetch('/api/wallets');
+  const d = await r.json();
+  if (!d.pubkeys?.length) return;
+  d.pubkeys.forEach((pk, i) => {
+    const el = document.createElement('div');
+    el.className = 'w-item';
+    el.innerHTML = `<span class="wi">${i+1}</span>${pk.slice(0,12)}…${pk.slice(-6)}`;
+    document.getElementById('wgrid').appendChild(el);
+  });
+  document.getElementById('gen-btn').textContent = '↺ Regenerate';
+}
+
+// ── CHAIN ────────────────────────────────────────────────────────────────
+const CHAIN_NODES = [
+  {id:'a1',lbl:'addr1',icon:'○'},
+  {id:'a2',lbl:'addr2',icon:'○'},
+  {id:'a3',lbl:'addr3',icon:'○'},
+  {id:'a4',lbl:'addr4',icon:'○'},
+  {id:'wsol',lbl:'WSOL',icon:'⬡',special:true},
+  {id:'a5',lbl:'addr5',icon:'○'},
+  {id:'bh',lbl:'Bundle',icon:'◉'},
+];
+
+function buildChainVis(addrs) {
+  const vis = document.getElementById('chain-vis');
+  vis.innerHTML = '';
+  CHAIN_NODES.forEach((n, i) => {
+    if (i > 0) {
+      const arr = document.createElement('div');
+      arr.className = 'c-arr'; arr.id = `arr${i}`; arr.textContent = '→';
+      vis.appendChild(arr);
+    }
+    const node = document.createElement('div');
+    node.className = 'c-node';
+    const pubkey = addrs && addrs[i] ? addrs[i].slice(0,6)+'…' : '';
+    node.innerHTML = `
+      <div class="c-dot${n.special?' special':''}" id="dot-${n.id}">${n.icon}</div>
+      <div class="c-lbl"><b>${n.lbl}</b>${pubkey ? '<br>'+pubkey : ''}</div>`;
+    vis.appendChild(node);
+  });
+}
+
+async function generateChain() {
+  const btn = document.getElementById('chain-gen-btn');
+  btn.disabled = true; btn.textContent = 'Generating…';
+  try {
+    const r = await fetch('/api/chain/generate', { method: 'POST' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+
+    const allAddrs = d.addrs.map(a => a.pubkey);
+    buildChainVis(allAddrs);
+    document.getElementById('chain-vis').style.display = 'flex';
+
+    document.getElementById('chain-addr1').textContent = d.depositHere;
+    document.getElementById('chain-deposit-box').style.display = 'block';
+    document.getElementById('chain-run-btn').style.display = 'inline-flex';
+
+    setBadge('b3', 'ready', 'purple');
+    document.getElementById('chain-status').textContent = 'Waiting for deposit to addr1…';
+    btn.textContent = '↺ Regenerate';
+  } catch(e) {
+    setBadge('b3', e.message, 'red');
+    btn.textContent = 'Generate Chain Addresses';
+  }
+  btn.disabled = false;
+}
+
+function setChainStep(step, done) {
+  // step 1→arr0+dot-a2, 2→arr1+dot-a3, 3→arr2+dot-a4, 4→arr3+dot-wsol+arr4+dot-a5, 5→arr5+dot-bh
+  const stepMap = {1:[0,'a2'],2:[1,'a3'],3:[2,'a4'],4:[3,'wsol',4,'a5'],5:[5,'bh']};
+  const targets = stepMap[step] || [];
+  targets.forEach(t => {
+    if (typeof t === 'number') {
+      const el = document.getElementById('arr'+t);
+      if (el) el.className = 'c-arr' + (done ? ' lit' : '');
+    } else {
+      const el = document.getElementById('dot-'+t);
+      if (el) {
+        const special = t === 'wsol';
+        el.className = 'c-dot' + (special?' special':'') + (done?' done':' active');
+      }
+    }
+  });
+}
+
+function runChain() {
+  const btn = document.getElementById('chain-run-btn');
+  btn.disabled = true;
+  setNum('n3', 'active');
+  setBadge('b3', 'running…', 'purple');
+
+  // mark addr1 as active
+  const dot1 = document.getElementById('dot-a1');
+  if (dot1) dot1.className = 'c-dot done';
+
+  const es = new EventSource('/api/chain/run');
+  es.onmessage = e => {
+    const ev = JSON.parse(e.data);
+
+    if (ev.type === 'waiting') {
+      document.getElementById('chain-status').textContent =
+        `Waiting… addr1 has ${(ev.balance/1e9).toFixed(4)} SOL, need ${(ev.needed/1e9).toFixed(4)} SOL`;
+      return;
+    }
+    if (ev.type === 'chain_step') {
+      setChainStep(ev.step, false);
+      document.getElementById('chain-status').textContent =
+        `Step ${ev.step}/6 — ${ev.label}`;
+    }
+    if (ev.type === 'chain_ok') {
+      setChainStep(ev.step, true);
+    }
+    if (ev.type === 'chain_done') {
+      setNum('n3', 'done'); setBadge('b3', 'done ✓', 'green');
+      document.getElementById('chain-status').textContent =
+        `✓ Bundle holder: ${ev.bundleBalance.toFixed(4)} SOL`;
+      document.getElementById('chain-deposit-box').style.display = 'none';
+      loadStatus();
+      es.close();
+    }
+    if (ev.type === 'all_done') { es.close(); btn.disabled = false; }
+    if (ev.type === 'error') {
+      setBadge('b3', 'error', 'red');
+      document.getElementById('chain-status').textContent = '✗ ' + ev.message;
+      btn.disabled = false; es.close();
+    }
+  };
+  es.onerror = () => { btn.disabled = false; es.close(); };
+}
+
+// ── DISTRIBUTE ───────────────────────────────────────────────────────────
+function updateDistBtn(status) {
+  document.getElementById('dist-btn').disabled = !status.walletsReady;
+}
+
+function distribute() {
+  const btn = document.getElementById('dist-btn');
+  btn.disabled = true;
+  document.getElementById('dlog').innerHTML = '';
+  setNum('n4','active'); setBadge('b4','running…','purple');
+  distS = 0;
+
+  const es = new EventSource('/api/distribute');
+  es.onmessage = e => {
+    const ev = JSON.parse(e.data);
+
+    if (ev.type === 'dist_start') {
+      distT = ev.total;
+      document.getElementById('dist-total').textContent = ev.total;
+      document.getElementById('dist-per').textContent   = (ev.perWallet/1e9).toFixed(4);
+    }
+    if (ev.type === 'dist_wallet') {
+      distS++;
+      document.getElementById('dist-sent').textContent = distS;
+      document.getElementById('pfill').style.width = (distS/distT*100)+'%';
+      setBadge('b4', distS+'/'+distT, 'purple');
+
+      const log = document.getElementById('dlog');
+      const row = document.createElement('div');
+      row.className = 'drow';
+      row.innerHTML = `
+        <span class="di">${ev.index+1}</span>
+        <span class="dp">${ev.pubkey.slice(0,10)}…${ev.pubkey.slice(-6)}</span>
+        <span class="da">${(ev.amount/1e9).toFixed(4)} SOL</span>
+        <a class="ds" href="https://solscan.io/tx/${ev.sig}" target="_blank">${ev.sig.slice(0,10)}…</a>`;
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+    }
+    if (ev.type === 'all_done') {
+      setNum('n4','done'); setBadge('b4', distT+' done ✓','green');
+      btn.textContent = '✓ Done'; loadStatus(); es.close();
+    }
+    if (ev.type === 'error') {
+      setBadge('b4', ev.message, 'red');
+      btn.disabled = false; es.close();
+    }
+  };
+  es.onerror = () => { btn.disabled = false; es.close(); };
+}
+
+// ── KEY EXPORT ────────────────────────────────────────────────────────────
+async function exportKeys(mode) {
+  const url = mode === 'funded' ? '/api/keys/funded' : '/api/keys/all';
+  const btn = document.getElementById('export-btn-'+mode);
+  btn.disabled = true; btn.textContent = 'Loading…';
+  try {
+    const r = await fetch(url);
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    const lines = d.map((w, i) => `${i+1}. ${w.pubkey}  |  ${w.secretBase58}${w.solBalance !== undefined ? '  | '+w.solBalance.toFixed(4)+' SOL' : ''}`).join('\n');
+    const blob = new Blob([lines], { type: 'text/plain' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = mode === 'funded' ? 'funded-wallets.txt' : 'all-wallets.txt';
+    a.click();
+    btn.textContent = '✓ Downloaded';
+    setTimeout(() => { btn.textContent = mode === 'funded' ? 'Export Funded Keys' : 'Export All Keys'; btn.disabled = false; }, 2000);
+  } catch(e) {
+    alert(e.message);
+    btn.textContent = mode === 'funded' ? 'Export Funded Keys' : 'Export All Keys';
+    btn.disabled = false;
+  }
+}
+
+// ── INIT ─────────────────────────────────────────────────────────────────
+loadStatus();
+setTimeout(loadExistingWallets, 500);
+refreshCost();
+setInterval(loadStatus, 10000);
+</script>
+</body>
+</html>
