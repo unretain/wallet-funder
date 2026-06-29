@@ -153,10 +153,12 @@ export function loadWalletPubkeys(walletsPath: string): string[] {
 // Returns all wallet data: pubkey + secret key (as base58) for every wallet.
 export function exportAllKeys(walletsPath: string): { pubkey: string; secretBase58: string }[] {
   const raw: number[][] = JSON.parse(readFileSync(walletsPath, "utf-8"));
+  // bs58 v6 exports encode under .default when loaded via CommonJS require
+  const bs58mod = require("bs58");
+  const bs58 = bs58mod.default ?? bs58mod;
   return raw.map(s => {
     const kp = Keypair.fromSecretKey(Uint8Array.from(s));
     // Encode secret as base58 (importable into Phantom / Solflare)
-    const bs58 = require("bs58");
     return { pubkey: kp.publicKey.toBase58(), secretBase58: bs58.encode(kp.secretKey) };
   });
 }
