@@ -13,6 +13,7 @@ import {
   generateWallets,
   loadWalletPubkeys,
   exportAllKeys,
+  sweepWithCallback,
   distributeWithCallback,
   generateChainAddresses,
   runChain,
@@ -196,6 +197,28 @@ app.get("/api/distribute", async (_req, res) => {
     emit({ type: "error", message: e.message });
   } finally {
     distRunning = false;
+    res.end();
+  }
+});
+
+// ── RECOVER (SSE) ────────────────────────────────────────────────────────────
+// /api/recover?dest=<addr>&scope=bundle|all
+let sweepRunning = false;
+app.get("/api/recover", async (req, res) => {
+  if (sweepRunning) { res.status(409).json({ error: "Recover already running." }); return; }
+
+  const dest  = (req.query.dest as string) || "";
+  const scope = (req.query.scope as string) === "all" ? "all" : "bundle";
+
+  const emit = sse(res);
+  sweepRunning = true;
+  try {
+    await sweepWithCallback(dest, scope, emit);
+    emit({ type: "all_done" });
+  } catch (e: any) {
+    emit({ type: "error", message: e.message });
+  } finally {
+    sweepRunning = false;
     res.end();
   }
 });

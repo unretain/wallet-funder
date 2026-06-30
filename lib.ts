@@ -252,6 +252,71 @@ export async function runChain(
   emit({ type: "chain_done", bundleBalance: bundleBal / LAMPORTS_PER_SOL });
 }
 
+// ── RECOVER / SWEEP ─────────────────────────────────────────────────────────
+// Pulls leftover SOL back to a destination address.
+//   scope "bundle" → just the bundle holder
+//   scope "all"    → bundle holder + every buyer wallet that has a balance
+// This is how you reclaim the safety buffer + unused gas cushions.
+export type SweepEvent =
+  | { type: "sweep_start"; total: number }
+  | { type: "sweep_wallet"; pubkey: string; amount: number; sig: string }
+  | { type: "sweep_skip"; pubkey: string; reason: string }
+  | { type: "sweep_done"; recovered: number }
+  | { type: "error"; message: string };
+
+export async function sweepWithCallback(
+  destination: string,
+  scope: "bundle" | "all",
+  emit: (e: SweepEvent) => void,
+): Promise<void> {
+  const { conn, bundle, walletsPath } = getConfig();
+
+  let dest: PublicKey;
+  try { dest = new PublicKey(destination); }
+  catch { emit({ type: "error", message: "Invalid destination address." }); return; }
+
+  const MIN_FEE = 5_000; // leave nothing but the tx fee
+
+  // Build the list of wallets to sweep
+  const wallets: Keypair[] = [bundle];
+  if (scope === "all" && existsSync(walletsPath)) {
+    const raw: number[][] = JSON.parse(readFileSync(walletsPath, "utf-8"));
+    raw.forEach(s => wallets.push(Keypair.fromSecretKey(Uint8Array.from(s))));
+  }
+
+  emit({ type: "sweep_start", total: wallets.length });
+
+  let recovered = 0;
+
+  // Sweep in small batches so we don't hammer the RPC
+  const BATCH = 10;
+  for (let i = 0; i < wallets.length; i += BATCH) {
+    const chunk = wallets.slice(i, i + BATCH);
+    await Promise.all(chunk.map(async (kp) => {
+      // Never sweep the destination into itself
+      if (kp.publicKey.equals(dest)) {
+        emit({ type: "sweep_skip", pubkey: kp.publicKey.toBase58(), reason: "is destination" });
+        return;
+      }
+      const bal = await conn.getBalance(kp.publicKey);
+      if (bal <= MIN_FEE) {
+        emit({ type: "sweep_skip", pubkey: kp.publicKey.toBase58(), reason: "empty" });
+        return;
+      }
+      const amt = bal - MIN_FEE;
+      const tx  = solTx(kp.publicKey, dest, amt);
+      tx.feePayer = kp.publicKey;
+      const { blockhash } = await conn.getLatestBlockhash();
+      tx.recentBlockhash = blockhash;
+      const sig = await sendAndConfirmTransaction(conn, tx, [kp], { commitment: "confirmed" });
+      recovered += amt / LAMPORTS_PER_SOL;
+      emit({ type: "sweep_wallet", pubkey: kp.publicKey.toBase58(), amount: amt, sig });
+    }));
+  }
+
+  emit({ type: "sweep_done", recovered });
+}
+
 // ── DISTRIBUTE ─────────────────────────────────────────────────────────────
 export async function distributeWithCallback(emit: (e: DistEvent) => void): Promise<void> {
   const { conn, bundle, walletsPath, walletCount } = getConfig();

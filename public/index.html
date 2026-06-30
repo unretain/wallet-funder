@@ -144,6 +144,18 @@ tr:last-child td{border-bottom:none;font-weight:700;font-size:12px;color:#fff;pa
   </div>
 </div>
 
+<!-- BIG DEPOSIT BOX -->
+<div id="big-deposit" style="display:none;background:linear-gradient(135deg,#12103a,#0f0f1c);border:1px solid var(--purple);border-radius:16px;padding:22px 26px;margin-bottom:22px">
+  <div style="font-size:11px;color:var(--purple);text-transform:uppercase;letter-spacing:.12em;font-weight:700;margin-bottom:10px">⚡ Deposit Address (same for everyone)</div>
+  <div id="big-deposit-addr" onclick="copyText(this)" title="click to copy"
+       style="font-family:monospace;font-size:clamp(14px,2.4vw,22px);font-weight:700;color:#fff;word-break:break-all;cursor:pointer;line-height:1.4">—</div>
+  <div style="display:flex;gap:16px;align-items:center;margin-top:12px;flex-wrap:wrap">
+    <div style="font-size:12px;color:var(--label)">Balance: <strong id="big-deposit-bal" style="color:var(--green)">— SOL</strong></div>
+    <button class="btn btn-sm btn-purple" onclick="copyText(document.getElementById('big-deposit-addr'))">Copy Address</button>
+    <div style="font-size:11px;color:var(--muted)">Send SOL here from Phantom / CEX → then Distribute</div>
+  </div>
+</div>
+
 <!-- STEPS -->
 <div class="steps" id="steps-ui" style="display:none">
 
@@ -240,6 +252,31 @@ tr:last-child td{border-bottom:none;font-weight:700;font-size:12px;color:#fff;pa
     </div>
   </div>
 
+  <!-- STEP 5: RECOVER -->
+  <div class="step" id="step5">
+    <div class="step-head" onclick="toggleStep('step5')">
+      <div class="num" id="n5">5</div>
+      <div class="step-title">Recover Funds</div>
+      <div class="step-badge" id="b5">—</div>
+    </div>
+    <div class="step-body">
+      <p class="step-desc">
+        Sweeps leftover SOL (the safety buffer + unused gas in every wallet) back to an address you own.
+        Nothing is lost — it all sits in wallets you control until you pull it back.
+      </p>
+      <div class="field" style="margin-bottom:10px">
+        <label>Destination address (your main wallet)</label>
+        <input type="text" id="recover-dest" placeholder="paste a Solana address" style="font-size:13px"/>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px">
+        <button class="btn btn-sm" style="background:#22224a" onclick="recover('bundle')">Sweep Bundle Holder Only</button>
+        <button class="btn btn-sm btn-purple" onclick="recover('all')">Sweep Everything (bundle + 100 wallets)</button>
+      </div>
+      <div id="recover-summary" style="font-size:12px;color:var(--green);margin-top:10px"></div>
+      <div class="dlog" id="rlog"></div>
+    </div>
+  </div>
+
 </div>
 
 <script>
@@ -297,6 +334,10 @@ async function loadStatus() {
   document.getElementById('steps-ui').style.display = 'flex';
 
   document.getElementById('deposit-addr').textContent = d.depositAddress;
+  // big deposit box
+  document.getElementById('big-deposit').style.display = 'block';
+  document.getElementById('big-deposit-addr').textContent = d.depositAddress;
+  document.getElementById('big-deposit-bal').textContent = d.balanceSol.toFixed(4) + ' SOL' + (d.solPrice ? '  ($' + (d.balanceSol * d.solPrice).toFixed(2) + ')' : '');
   document.getElementById('bal-sol').textContent = d.balanceSol.toFixed(4);
   document.getElementById('bal-usd').textContent = d.solPrice ? '$' + (d.balanceSol * d.solPrice).toFixed(2) + ' USD' : '';
   document.getElementById('sol-price').textContent = d.solPrice ? d.solPrice.toFixed(2) : '—';
@@ -570,6 +611,47 @@ async function exportKeys(mode) {
     btn.textContent = mode === 'funded' ? 'Export Funded Keys' : 'Export All Keys';
     btn.disabled = false;
   }
+}
+
+// ── RECOVER ───────────────────────────────────────────────────────────────
+function recover(scope) {
+  const dest = document.getElementById('recover-dest').value.trim();
+  if (!dest) { alert('Paste a destination address first.'); return; }
+  if (scope === 'all' && !confirm('Sweep the bundle holder AND all 100 wallets back to ' + dest.slice(0,8) + '…? This empties every wallet.')) return;
+
+  document.getElementById('rlog').innerHTML = '';
+  document.getElementById('recover-summary').textContent = '';
+  setNum('n5','active'); setBadge('b5','sweeping…','purple');
+  let recovered = 0, swept = 0;
+
+  const es = new EventSource(`/api/recover?dest=${encodeURIComponent(dest)}&scope=${scope}`);
+  es.onmessage = e => {
+    const ev = JSON.parse(e.data);
+
+    if (ev.type === 'sweep_wallet') {
+      swept++;
+      const log = document.getElementById('rlog');
+      const row = document.createElement('div');
+      row.className = 'drow';
+      row.innerHTML = `
+        <span class="di">↑</span>
+        <span class="dp">${ev.pubkey.slice(0,10)}…${ev.pubkey.slice(-6)}</span>
+        <span class="da">${(ev.amount/1e9).toFixed(4)} SOL</span>
+        <a class="ds" href="https://solscan.io/tx/${ev.sig}" target="_blank">${ev.sig.slice(0,10)}…</a>`;
+      log.appendChild(row); log.scrollTop = log.scrollHeight;
+    }
+    if (ev.type === 'sweep_done') {
+      setNum('n5','done'); setBadge('b5', swept+' swept ✓','green');
+      document.getElementById('recover-summary').textContent =
+        `✓ Recovered ${ev.recovered.toFixed(4)} SOL from ${swept} wallet${swept===1?'':'s'} → ${dest.slice(0,8)}…`;
+      loadStatus();
+    }
+    if (ev.type === 'all_done') es.close();
+    if (ev.type === 'error') {
+      setBadge('b5', ev.message, 'red'); es.close();
+    }
+  };
+  es.onerror = () => es.close();
 }
 
 // ── INIT ─────────────────────────────────────────────────────────────────
