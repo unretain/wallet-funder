@@ -63,15 +63,41 @@ function solTx(from: PublicKey, to: PublicKey, lamports: number): Transaction {
   return new Transaction().add(SystemProgram.transfer({ fromPubkey: from, toPubkey: to, lamports }));
 }
 
-// ── SOL PRICE ──────────────────────────────────────────────────────────────
+// ── SOL PRICE (cached, multi-source) ────────────────────────────────────────
+// Fetches at most once per 60s no matter how many clients poll. Tries Jupiter
+// first (reliable from server IPs), then CoinGecko, then env fallback, then the
+// last good value. Never spams an API and never returns 0 once seeded.
+const SOL_MINT = "So11111111111111111111111111111111111111112";
+let _priceCache = { value: 0, ts: 0 };
+const PRICE_TTL_MS = 60_000;
+
+async function fetchJupiter(): Promise<number> {
+  const r = await fetch(`https://lite-api.jup.ag/price/v2?ids=${SOL_MINT}`, { signal: AbortSignal.timeout(4000) });
+  const d: any = await r.json();
+  return Number(d?.data?.[SOL_MINT]?.price) || 0;
+}
+async function fetchCoinGecko(): Promise<number> {
+  const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", { signal: AbortSignal.timeout(4000) });
+  const d: any = await r.json();
+  return Number(d?.solana?.usd) || 0;
+}
+
 export async function getSolPrice(): Promise<number> {
-  try {
-    const r = await fetch("https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd", {
-      signal: AbortSignal.timeout(5000),
-    });
-    const d = await r.json() as { solana?: { usd?: number } };
-    return d.solana?.usd ?? 0;
-  } catch { return 0; }
+  const now = Date.now();
+  // Serve cached value if fresh
+  if (_priceCache.value > 0 && now - _priceCache.ts < PRICE_TTL_MS) return _priceCache.value;
+
+  for (const src of [fetchJupiter, fetchCoinGecko]) {
+    try {
+      const p = await src();
+      if (p > 0) { _priceCache = { value: p, ts: now }; return p; }
+    } catch { /* try next */ }
+  }
+
+  // Both APIs failed — use manual env override, else last known good value.
+  const fallback = Number(process.env.SOL_PRICE_USD) || _priceCache.value || 0;
+  if (fallback > 0) _priceCache = { value: fallback, ts: now };
+  return fallback;
 }
 
 // ── COST ───────────────────────────────────────────────────────────────────
@@ -220,22 +246,32 @@ export async function runChain(
   }
 
   // Step 4: a4 wraps SOL → WSOL, transfers WSOL to a5
+  // a4 must reserve for: 2 ATA rents (ata4 + ata5) + gas it sends a5 to unwrap
+  // with + its own tx fee. a5 has NO native SOL otherwise, so it can't pay the
+  // close-account fee — that was the bug. We pre-fund a5 with A5_GAS native.
+  const A5_GAS  = 5_000_000; // 0.005 SOL for a5's unwrap + forward tx fees
   const ata4    = getAssociatedTokenAddressSync(NATIVE_MINT, a4.publicKey);
   const ata5    = getAssociatedTokenAddressSync(NATIVE_MINT, a5.publicKey);
-  const wrapAmt = carry - WSOL_RENT - HOP_FEE * 3;
+  const wrapAmt = carry - WSOL_RENT * 2 - A5_GAS - HOP_FEE;
 
   emit({ type: "chain_step", step: 4, label: "SOL → WSOL wrap + SPL transfer", from: a4.publicKey.toBase58(), to: a5.publicKey.toBase58() });
   const wrapTx = new Transaction().add(
+    // create a4's WSOL account + fund it with the SOL we want to move
     createAssociatedTokenAccountInstruction(a4.publicKey, ata4, a4.publicKey, NATIVE_MINT),
     SystemProgram.transfer({ fromPubkey: a4.publicKey, toPubkey: ata4, lamports: wrapAmt }),
     createSyncNativeInstruction(ata4),
+    // create a5's WSOL account (a4 pays rent) and move the WSOL token across
     createAssociatedTokenAccountInstruction(a4.publicKey, ata5, a5.publicKey, NATIVE_MINT),
     createTransferInstruction(ata4, ata5, a4.publicKey, wrapAmt),
+    // give a5 native SOL so it can afford the unwrap + forward fees
+    SystemProgram.transfer({ fromPubkey: a4.publicKey, toPubkey: a5.publicKey, lamports: A5_GAS }),
+    // close a4's now-empty WSOL account, reclaim its rent back to a4
+    createCloseAccountInstruction(ata4, a4.publicKey, a4.publicKey),
   );
   const wrapSig = await sendTx(conn, wrapTx, a4);
   emit({ type: "chain_ok", step: 4, sig: wrapSig });
 
-  // Step 5: a5 unwraps WSOL → SOL
+  // Step 5: a5 unwraps WSOL → SOL (close sends WSOL + rent back to a5 native)
   emit({ type: "chain_step", step: 5, label: "WSOL unwrap", from: a5.publicKey.toBase58(), to: a5.publicKey.toBase58() });
   const unwrapTx = new Transaction().add(createCloseAccountInstruction(ata5, a5.publicKey, a5.publicKey));
   const unwrapSig = await sendTx(conn, unwrapTx, a5);
@@ -342,12 +378,13 @@ export async function distributeWithCallback(emit: (e: DistEvent) => void): Prom
 
   for (let i = 0; i < dests.length; i += BATCH) {
     const chunk = dests.slice(i, i + BATCH);
+    // One blockhash shared across the batch — fast enough that it won't expire.
+    const { blockhash } = await conn.getLatestBlockhash();
     await Promise.all(chunk.map(async (dest, j) => {
       const idx = i + j;
       const amt = Math.floor(perWallet * MULTS[idx % MULTS.length]) + DIST_FEE_BUF;
       const tx  = solTx(bundle.publicKey, dest, amt);
       tx.feePayer = bundle.publicKey;
-      const { blockhash } = await conn.getLatestBlockhash();
       tx.recentBlockhash = blockhash;
       const sig = await sendAndConfirmTransaction(conn, tx, [bundle], { commitment: "confirmed" });
       emit({ type: "dist_wallet", index: idx, pubkey: dest.toBase58(), amount: amt, sig });
