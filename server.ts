@@ -21,7 +21,7 @@ import {
 } from "./lib";
 
 const app  = express();
-const PORT = 3000;
+const PORT = parseInt(process.env.PORT ?? "3000"); // Railway injects PORT
 const ENV_PATH = resolve(__dirname, ".env");
 
 app.use(express.json());
@@ -200,8 +200,6 @@ app.get("/api/distribute", async (_req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`\n  ┌─────────────────────────────────────────┐`);
-  console.log(`  │  Wallet Funder  →  http://localhost:${PORT}  │`);
-  console.log(`  └─────────────────────────────────────────┘\n`);
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`\n  Wallet Funder listening on port ${PORT}\n`);
 });
