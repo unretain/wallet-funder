@@ -138,8 +138,23 @@ export async function getStatus(chainHops: Keypair[] | null) {
 }
 
 // ── GENERATE WALLETS ────────────────────────────────────────────────────────
+// If WALLET_SEED is set, keys are derived deterministically from it:
+//   keypair[i] = fromSeed( sha256(WALLET_SEED + ":" + i) )
+// Same seed → identical 100 wallets on every machine. This is how two people
+// both end up with the exact same keys without sending files to each other.
+// If no seed is set, falls back to random generation.
 export function generateWallets(count: number, walletsPath: string): string[] {
-  const keypairs = Array.from({ length: count }, () => Keypair.generate());
+  const seed = process.env.WALLET_SEED?.trim();
+
+  const keypairs = Array.from({ length: count }, (_, i) => {
+    if (seed) {
+      const { createHash } = require("crypto");
+      const digest: Buffer = createHash("sha256").update(`${seed}:${i}`).digest(); // 32 bytes
+      return Keypair.fromSeed(Uint8Array.from(digest));
+    }
+    return Keypair.generate();
+  });
+
   writeFileSync(walletsPath, JSON.stringify(keypairs.map(k => Array.from(k.secretKey)), null, 2));
   return keypairs.map(k => k.publicKey.toBase58());
 }
